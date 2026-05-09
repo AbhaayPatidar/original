@@ -776,7 +776,7 @@ const HomePage = ({ addToCart, wishlistIds, onToggleWishlist, onQuickView }: {
                <span className="w-8 h-[1px] bg-accent/30"></span>
                Curated Catalog
              </div>
-             <h2 className="text-5xl md:text-7xl font-logo font-extrabold tracking-[-0.05em] uppercase italic leading-[0.9]">
+             <h2 className="text-3xl md:text-7xl font-logo font-extrabold tracking-[-0.05em] uppercase italic leading-[0.9]">
                Latest <span className="text-outline">Drops</span>
              </h2>
           </div>
@@ -1511,6 +1511,7 @@ export default function App() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [wishlistIds, setWishlistIds] = useState<Set<string>>(new Set());
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
@@ -1519,6 +1520,7 @@ export default function App() {
   const navigate = useNavigate();
 
   const handleLogin = async () => {
+    setAuthError(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -1535,8 +1537,17 @@ export default function App() {
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, userPath);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      let message = "Login failed. Please try again.";
+      if (error.code === 'auth/unauthorized-domain') {
+        message = "Authorized domain error. Please add this domain to your Firebase Console under Authentication > Settings > Authorized Domains.";
+      } else if (error.code === 'auth/popup-blocked') {
+        message = "Popup blocked. Please allow popups for this site.";
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        message = "Login popup was closed before completion.";
+      }
+      setAuthError(message);
     }
   };
 
@@ -1694,11 +1705,11 @@ export default function App() {
           animate={{ opacity: 1 }}
           className="flex flex-col items-center gap-8"
         >
-          <div className="flex flex-col items-center -space-y-2">
-            <div className="text-5xl font-logo font-extrabold tracking-[-0.05em] text-white accent-glow-white">ORIGINAL</div>
-            <div className="text-[0.65rem] font-black tracking-[0.8em] text-accent uppercase opacity-80 pl-2">Archives</div>
+          <div className="flex flex-col items-center -space-y-1 md:-space-y-2">
+            <div className="text-3xl md:text-5xl font-logo font-extrabold tracking-[-0.05em] text-white accent-glow-white">ORIGINAL</div>
+            <div className="text-[0.5rem] md:text-[0.65rem] font-black tracking-[0.5em] md:tracking-[0.8em] text-accent uppercase opacity-80 pl-2">Archives</div>
           </div>
-          <div className="w-64 h-1 bg-white/5 relative overflow-hidden">
+          <div className="w-48 md:w-64 h-1 bg-white/5 relative overflow-hidden">
             <motion.div 
               animate={{ x: ['-100%', '100%'] }}
               transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
@@ -1719,6 +1730,25 @@ export default function App() {
         user={user}
         onLogin={handleLogin}
       />
+
+      <AnimatePresence>
+        {authError && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md bg-red-500/90 backdrop-blur-xl border border-red-500/50 p-4 rounded-xl shadow-2xl flex items-start gap-4"
+          >
+            <div className="flex-1">
+              <p className="text-[0.6rem] font-black tracking-widest uppercase mb-1">Authentication Error</p>
+              <p className="text-[0.7rem] font-bold leading-relaxed">{authError}</p>
+            </div>
+            <button onClick={() => setAuthError(null)} className="p-1 hover:bg-black/20 rounded-full transition-colors">
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
         <Routes>
           <Route path="/" element={<HomePage addToCart={addToCart} wishlistIds={wishlistIds} onToggleWishlist={toggleWishlist} onQuickView={setQuickViewProduct} />} />
