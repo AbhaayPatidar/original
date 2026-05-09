@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- User Rules ---
+    match /users/{userId} {
+      // 2. Validation Blueprint (Anti-Update-Gap)
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'email', 'displayName', 'photoURL', 'createdAt'])
+          && data.keys().size() == 5
+          && data.uid == request.auth.uid // Identity Integrity
+          && data.email is string && data.email.size() <= 200
+          && data.displayName is string && data.displayName.size() <= 100
+          && data.photoURL is string && data.photoURL.size() <= 500
+          && data.createdAt is timestamp; // Type Safety
+      }
+
+      // 6. PII Isolation (Read restriction)
+      allow get: if isSignedIn();
+      
+      // 8. Secure List Queries
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      // 10. Temporal Integrity (Strict Timestamps)
+      allow create: if isVerified() 
+        && isOwner(userId) 
+        && isValidUser(incoming()) 
+        && isValidId(userId)
+        && incoming().createdAt == request.time;
+      
+      // 4. Tiered Identity Logic + 9. Immortal Field
+      allow update: if isVerified()
+        && isOwner(userId) 
+        && isValidUser(incoming()) 
+        && incoming().createdAt == existing().createdAt
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL'])
+        );
+    }
+
+    // --- Order Rules ---
+    match /orders/{orderId} {
+      function isValidOrder(data) {
+        return data.keys().hasAll(['userId', 'items', 'totalAmount', 'status', 'shippingDetails', 'createdAt'])
+          && data.keys().size() == 6
+          && data.userId == request.auth.uid
+          && data.items is list && data.items.size() > 0
+          && data.totalAmount is number
+          && data.status is string && data.status in ['pending', 'completed']
+          && data.shippingDetails is map
+          && data.shippingDetails.keys().hasAll(['name', 'email', 'address1', 'pincode', 'city', 'state'])
+          && data.shippingDetails.name is string && data.shippingDetails.name.size() <= 200
+          && data.shippingDetails.email is string && data.shippingDetails.email.size() <= 200
+          && data.shippingDetails.address1 is string && data.shippingDetails.address1.size() <= 500
+          && data.shippingDetails.pincode is string && data.shippingDetails.pincode.size() <= 20
+          && data.shippingDetails.city is string && data.shippingDetails.city.size() <= 100
+          && data.shippingDetails.state is string && data.shippingDetails.state.size() <= 100
+          && data.createdAt is timestamp;
+      }
+
+      allow create: if isVerified() && isValidOrder(incoming()) && isValidId(orderId) && incoming().createdAt == request.time;
+      allow get, list: if isVerified() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- Wishlist Rules ---
+    match /wishlists/{wishlistId} {
+      function isValidWishlistItem(data) {
+        return data.keys().hasAll(['userId', 'productId', 'productName', 'productPrice', 'productImage', 'createdAt'])
+          && data.keys().size() == 6
+          && data.userId == request.auth.uid
+          && data.productId is string && data.productId.size() <= 100
+          && data.productName is string && data.productName.size() <= 200
+          && data.productImage is string && data.productImage.size() <= 500
+          && data.productPrice is number
+          && data.createdAt is timestamp;
+      }
+
+      allow create: if isVerified() && isValidWishlistItem(incoming()) && isValidId(wishlistId) && incoming().createdAt == request.time;
+      allow delete: if isVerified() && resource.data.userId == request.auth.uid;
+      allow get, list: if isVerified() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
